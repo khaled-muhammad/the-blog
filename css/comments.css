@@ -1,0 +1,162 @@
+.admin-alert {
+    padding: 1rem;
+    border-radius: 8px;
+    margin-bottom: 2rem;
+    border: 1px solid transparent;
+}
+
+.admin-alert.alert-success {
+    background-color: #d1fae5;
+    border-color: #a7f3d0;
+    color: #065f46;
+}
+
+.admin-alert.alert-danger {
+    background-color: #fee2e2;
+    border-color: #fecaca;
+    color: #991b1b;
+}
+
+.comments-empty {
+    text-align: center;
+    padding: 3rem 2rem;
+    color: #6b7280;
+    background: rgba(255, 255, 255, 0.85);
+    border-radius: 20px;
+    border: 1px solid rgba(255, 255, 255, 0.6);
+    box-shadow: 0 20px 32px rgba(34, 44, 68, 0.1);
+}
+
+.comments-empty-icon {
+    display: inline-flex;
+    font-size: 3rem;
+    color: #ff2b87;
+    opacity: 0.5;
+    margin-bottom: 1rem;
+}
+
+.comments-empty-hint {
+    margin-top: 0.5rem;
+    font-size: 0.85rem;
+    color: #8c92a3;
+}
+
+.comment-author {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.comment-author-details .meta {
+    margin-top: 2px;
+}
+
+.comment-body {
+    max-width: 420px;
+    color: #2f3a4c;
+    line-height: 1.6;
+    font-size: 0.95rem;
+}
+
+.comment-body p {
+    margin: 0;
+}
+
+.comment-meta-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 8px;
+    font-size: 0.75rem;
+    color: #8c92a3;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+
+.comment-meta-badge ion-icon {
+    font-size: 0.9rem;
+}
+
+.comment-post-link {
+    color: #2f3a4c;
+    text-decoration: none;
+    font-weight: 600;
+    transition: color 0.2s ease;
+}
+
+.comment-post-link:hover,
+.comment-post-link:focus {
+    color: #ff2b87;
+    text-decoration: none;
+}
+
+.table-actions form {
+    display: inline-block;
+}
+
+.table-action.approve {
+    background: rgba(37, 178, 91, 0.12);
+    color: #25b25b;
+}
+
+.table-action.spam {
+    background: rgba(255, 159, 28, 0.12);
+    color: #ff9f1c;
+}
+
+.table-action.delete {
+    background: rgba(239, 68, 68, 0.12);
+    color: #ef4444;
+}
+
+.table-action.delete:hover,
+.table-action.delete:focus {
+    color: #ef4444;
+}
+
+.comments-action-link {
+    color: #2f3a4c;
+    text-decoration: none;
+    font-weight: 600;
+    transition: color 0.2s ease;
+}
+
+.comments-action-link:hover,
+.comments-action-link:focus {
+    color: #ff2b87;
+    text-decoration: none;
+}
+
+/* Section spacing */
+.page-header {
+    margin-bottom: 2.5rem;
+}
+
+.category-toolbar {
+    margin-bottom: 2.5rem;
+}
+
+.categories-grid {
+    margin-top: 0;
+}
+
+/* Remove text-decoration from all links */
+.comments-page a {
+    text-decoration: none;
+}
+
+.comments-page a:hover,
+.comments-page a:focus {
+    text-decoration: none;
+}
+
+/* Pagination links */
+.pagination .page-link {
+    text-decoration: none;
+}
+
+.pagination .page-link:hover,
+.pagination .page-link:focus {
+    text-decoration: none;
+}
+

@@ -1,3 +1,107 @@
+<?php
+require_once '../config.php';
+requireAuth();
+
+function formatNumber($num) {
+    if ($num >= 1000) {
+        return number_format($num / 1000, 1) . 'K';
+    }
+    return $num;
+}
+
+try {
+    $publishedThisMonth = $conn->query("
+        SELECT COUNT(*) as count 
+        FROM posts 
+        WHERE status = 'published' 
+          AND MONTH(published_at) = MONTH(CURRENT_DATE())
+          AND YEAR(published_at) = YEAR(CURRENT_DATE())
+    ")->fetch(PDO::FETCH_ASSOC)['count'] ?? 0;
+    
+    $publishedLastMonth = $conn->query("
+        SELECT COUNT(*) as count 
+        FROM posts 
+        WHERE status = 'published' 
+          AND MONTH(published_at) = MONTH(DATE_SUB(CURRENT_DATE(), INTERVAL 1 MONTH))
+          AND YEAR(published_at) = YEAR(DATE_SUB(CURRENT_DATE(), INTERVAL 1 MONTH))
+    ")->fetch(PDO::FETCH_ASSOC)['count'] ?? 0;
+    
+    $publishedDiff = $publishedThisMonth - $publishedLastMonth;
+    
+    $draftsCount = $conn->query("
+        SELECT COUNT(*) as count 
+        FROM posts 
+        WHERE status = 'draft'
+    ")->fetch(PDO::FETCH_ASSOC)['count'] ?? 0;
+    
+    $inReviewCount = $conn->query("
+        SELECT COUNT(*) as count 
+        FROM posts 
+        WHERE status = 'in-review'
+    ")->fetch(PDO::FETCH_ASSOC)['count'] ?? 0;
+    
+    $commentsPending = $conn->query("
+        SELECT COUNT(*) as count 
+        FROM comments 
+        WHERE status = 'pending'
+    ")->fetch(PDO::FETCH_ASSOC)['count'] ?? 0;
+    
+    $commentsNeedingReplies = $conn->query("
+        SELECT COUNT(DISTINCT c.post_id) as count 
+        FROM comments c
+        INNER JOIN posts p ON c.post_id = p.id
+        WHERE c.status = 'approved' AND p.status = 'published'
+    ")->fetch(PDO::FETCH_ASSOC)['count'] ?? 0;
+    
+    $totalViews = $conn->query("
+        SELECT SUM(views_count) as total 
+        FROM posts 
+        WHERE status = 'published'
+    ")->fetch(PDO::FETCH_ASSOC)['total'] ?? 0;
+    
+    $avgReadingTime = $conn->query("
+        SELECT AVG(reading_time_minutes) as avg 
+        FROM posts 
+        WHERE status = 'published' AND reading_time_minutes IS NOT NULL
+    ")->fetch(PDO::FETCH_ASSOC)['avg'] ?? 0;
+    
+    $topCategory = $conn->query("
+        SELECT c.name, 
+               SUM(p.views_count) as total_views,
+               COUNT(p.id) as post_count
+        FROM categories c
+        LEFT JOIN posts p ON c.id = p.primary_category_id AND p.status = 'published'
+        GROUP BY c.id, c.name
+        HAVING total_views > 0
+        ORDER BY total_views DESC
+        LIMIT 1
+    ")->fetch(PDO::FETCH_ASSOC);
+    
+    $recentPosts = $conn->query("
+        SELECT p.title, p.status, p.updated_at, c.name as category_name
+        FROM posts p
+        LEFT JOIN categories c ON p.primary_category_id = c.id
+        ORDER BY p.updated_at DESC
+        LIMIT 5
+    ")->fetchAll(PDO::FETCH_ASSOC);
+    
+} catch (PDOException $e) {
+    error_log("Dashboard error: " . $e->getMessage());
+    $publishedThisMonth = 0;
+    $publishedDiff = 0;
+    $draftsCount = 0;
+    $inReviewCount = 0;
+    $commentsPending = 0;
+    $commentsNeedingReplies = 0;
+    $totalViews = 0;
+    $avgReadingTime = 0;
+    $topCategory = null;
+    $recentPosts = [];
+}
+
+$currentUser = getCurrentUser();
+$userDisplayName = $currentUser['display_name'] ?? ($currentUser['first_name'] ?? 'Creator');
+?>
 <!doctype html>
 <html lang="en">
 
@@ -28,11 +132,11 @@
                 <div class="admin-content flex-grow-1">
                     <section class="dashboard-hero mb-4">
                         <div class="hero-text">
-                            <span class="hero-kicker">Welcome back, Creator</span>
+                            <span class="hero-kicker">Welcome back, <?php echo htmlspecialchars($userDisplayName); ?></span>
                             <h1 class="hero-title">Your creative pulse at a glance</h1>
                             <p class="hero-subtitle">Track momentum, spot opportunities, and keep the community engaged.</p>
                             <div class="hero-actions">
-                                <a href="/admin/posts.php" class="btn btn-dashboard">
+                                <a href="/admin/posts-create.php" class="btn btn-dashboard">
                                     <ion-icon name="add-circle-outline"></ion-icon>
                                     <span>New post</span>
                                 </a>
@@ -44,20 +148,20 @@
                         </div>
                         <div class="hero-highlight">
                             <div class="highlight-stat">
-                                <span class="label">Weekly reach</span>
-                                <strong>48.2K</strong>
+                                <span class="label">Total views</span>
+                                <strong><?php echo formatNumber($totalViews); ?></strong>
                                 <span class="trend up">
-                                    <ion-icon name="arrow-up-outline"></ion-icon>
-                                    +8.4%
+                                    <ion-icon name="eye-outline"></ion-icon>
+                                    All time
                                 </span>
                             </div>
                             <div class="highlight-divider"></div>
                             <div class="highlight-stat">
                                 <span class="label">Avg. read time</span>
-                                <strong>5m 12s</strong>
+                                <strong><?php echo $avgReadingTime > 0 ? round($avgReadingTime) . 'm' : '—'; ?></strong>
                                 <span class="trend steady">
-                                    <ion-icon name="remove-outline"></ion-icon>
-                                    steady
+                                    <ion-icon name="time-outline"></ion-icon>
+                                    <?php echo $avgReadingTime > 0 ? 'average' : 'no data'; ?>
                                 </span>
                             </div>
                         </div>
@@ -72,10 +176,18 @@
                                 </div>
                                 <div class="metric-content">
                                     <span class="metric-label">Posts published</span>
-                                    <strong class="metric-value">128</strong>
-                                    <span class="metric-delta up">
-                                        <ion-icon name="trending-up-outline"></ion-icon>
-                                        +4 this week
+                                    <strong class="metric-value"><?php echo $publishedThisMonth; ?></strong>
+                                    <span class="metric-delta <?php echo $publishedDiff >= 0 ? 'up' : 'neutral'; ?>">
+                                        <ion-icon name="<?php echo $publishedDiff >= 0 ? 'trending-up-outline' : 'remove-outline'; ?>"></ion-icon>
+                                        <?php 
+                                        if ($publishedDiff > 0) {
+                                            echo '+' . $publishedDiff . ' vs last month';
+                                        } elseif ($publishedDiff < 0) {
+                                            echo $publishedDiff . ' vs last month';
+                                        } else {
+                                            echo 'Same as last month';
+                                        }
+                                        ?>
                                     </span>
                                 </div>
                             </article>
@@ -85,10 +197,10 @@
                                 </div>
                                 <div class="metric-content">
                                     <span class="metric-label">Drafts in progress</span>
-                                    <strong class="metric-value">9</strong>
+                                    <strong class="metric-value"><?php echo $draftsCount + $inReviewCount; ?></strong>
                                     <span class="metric-delta neutral">
                                         <ion-icon name="pause-outline"></ion-icon>
-                                        awaiting review
+                                        <?php echo $inReviewCount > 0 ? $inReviewCount . ' in review' : 'awaiting review'; ?>
                                     </span>
                                 </div>
                             </article>
@@ -98,23 +210,26 @@
                                 </div>
                                 <div class="metric-content">
                                     <span class="metric-label">Comments pending</span>
-                                    <strong class="metric-value">14</strong>
+                                    <strong class="metric-value"><?php echo $commentsPending; ?></strong>
                                     <span class="metric-delta up">
                                         <ion-icon name="time-outline"></ion-icon>
-                                        5 need replies
+                                        <?php echo $commentsNeedingReplies > 0 ? $commentsNeedingReplies . ' need replies' : 'all clear'; ?>
                                     </span>
                                 </div>
                             </article>
                             <article class="metric-card">
                                 <div class="metric-icon gradient-secondary">
-                                    <ion-icon name="people-circle-outline"></ion-icon>
+                                    <ion-icon name="albums-outline"></ion-icon>
                                 </div>
                                 <div class="metric-content">
-                                    <span class="metric-label">New subscribers</span>
-                                    <strong class="metric-value">312</strong>
+                                    <span class="metric-label">Categories</span>
+                                    <strong class="metric-value"><?php 
+                                        $categoryCount = $conn->query("SELECT COUNT(*) as count FROM categories WHERE status != 'archived'")->fetch(PDO::FETCH_ASSOC)['count'] ?? 0;
+                                        echo $categoryCount;
+                                    ?></strong>
                                     <span class="metric-delta up">
-                                        <ion-icon name="happy-outline"></ion-icon>
-                                        +18 today
+                                        <ion-icon name="sparkles-outline"></ion-icon>
+                                        Active
                                     </span>
                                 </div>
                             </article>
@@ -134,27 +249,36 @@
                                     </button>
                                 </header>
                                 <ul class="insights-list">
+                                    <?php if ($topCategory): ?>
                                     <li>
                                         <div>
-                                            <strong>Motion Design</strong>
-                                            <p>Top-performing category with 27% of total views.</p>
+                                            <strong><?php echo htmlspecialchars($topCategory['name']); ?></strong>
+                                            <p>Top-performing category with <?php echo formatNumber($topCategory['total_views']); ?> total views.</p>
                                         </div>
-                                        <span class="badge badge-soft">+12% vs last week</span>
+                                        <span class="badge badge-soft"><?php echo $topCategory['post_count']; ?> posts</span>
                                     </li>
+                                    <?php endif; ?>
                                     <li>
                                         <div>
-                                            <strong>Call-to-action clicks</strong>
-                                            <p>Readers respond best on Tuesdays between 3-5 PM.</p>
+                                            <strong>Content status</strong>
+                                            <p><?php 
+                                                $totalPosts = $conn->query("SELECT COUNT(*) as count FROM posts")->fetch(PDO::FETCH_ASSOC)['count'] ?? 0;
+                                                $publishedPosts = $conn->query("SELECT COUNT(*) as count FROM posts WHERE status = 'published'")->fetch(PDO::FETCH_ASSOC)['count'] ?? 0;
+                                                $publishRate = $totalPosts > 0 ? round(($publishedPosts / $totalPosts) * 100) : 0;
+                                                echo $publishRate . '% of posts are published.';
+                                            ?></p>
                                         </div>
-                                        <span class="badge badge-soft">Optimize schedule</span>
+                                        <span class="badge badge-soft"><?php echo $publishedPosts; ?> published</span>
                                     </li>
+                                    <?php if ($totalViews > 0): ?>
                                     <li>
                                         <div>
-                                            <strong>Newsletter conversions</strong>
-                                            <p>Homepage hero experiment increased signups by 9%.</p>
+                                            <strong>Engagement</strong>
+                                            <p>Total views across all published content.</p>
                                         </div>
-                                        <span class="badge badge-soft">Experiment holding</span>
+                                        <span class="badge badge-soft"><?php echo formatNumber($totalViews); ?> views</span>
                                     </li>
+                                    <?php endif; ?>
                                 </ul>
                             </article>
                         </div>
@@ -167,30 +291,28 @@
                                     </div>
                                 </header>
                                 <ol class="activity-timeline">
-                                    <li>
-                                        <span class="timeline-point gradient-primary"></span>
-                                        <div class="timeline-content">
-                                            <strong>Storyboard Draft approved</strong>
-                                            <p>“Animating micro-interactions” moved to production queue.</p>
-                                            <time datetime="2025-10-31T18:20">18:20 · Oct 31</time>
-                                        </div>
-                                    </li>
-                                    <li>
-                                        <span class="timeline-point gradient-secondary"></span>
-                                        <div class="timeline-content">
-                                            <strong>Comment escalated</strong>
-                                            <p>Feedback from Jonas on accessibility guidelines flagged for review.</p>
-                                            <time datetime="2025-10-31T15:05">15:05 · Oct 31</time>
-                                        </div>
-                                    </li>
-                                    <li>
-                                        <span class="timeline-point gradient-primary"></span>
-                                        <div class="timeline-content">
-                                            <strong>New subscriber milestone</strong>
-                                            <p>Creative Pulse newsletter crossed 15K engaged readers.</p>
-                                            <time datetime="2025-10-30T09:45">09:45 · Oct 30</time>
-                                        </div>
-                                    </li>
+                                    <?php if (empty($recentPosts)): ?>
+                                        <li>
+                                            <span class="timeline-point gradient-primary"></span>
+                                            <div class="timeline-content">
+                                                <strong>No recent activity</strong>
+                                                <p>Start creating posts to see activity here.</p>
+                                            </div>
+                                        </li>
+                                    <?php else: ?>
+                                        <?php foreach ($recentPosts as $index => $post): ?>
+                                            <li>
+                                                <span class="timeline-point gradient-<?php echo ($index % 2 == 0) ? 'primary' : 'secondary'; ?>"></span>
+                                                <div class="timeline-content">
+                                                    <strong>Post updated: <?php echo htmlspecialchars($post['title']); ?></strong>
+                                                    <p>Status: <?php echo ucfirst(str_replace('-', ' ', $post['status'])); ?><?php echo $post['category_name'] ? ' · ' . htmlspecialchars($post['category_name']) : ''; ?></p>
+                                                    <time datetime="<?php echo date('Y-m-d\TH:i', strtotime($post['updated_at'])); ?>">
+                                                        <?php echo date('H:i · M j', strtotime($post['updated_at'])); ?>
+                                                    </time>
+                                                </div>
+                                            </li>
+                                        <?php endforeach; ?>
+                                    <?php endif; ?>
                                 </ol>
                             </article>
                         </div>

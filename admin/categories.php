@@ -1,3 +1,38 @@
+<?php
+require_once '../config.php';
+requireAuth();
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_category'])) {
+    $categoryId = intval($_POST['category_id']);
+    
+    if ($categoryId > 0) {
+        try {
+            $checkPosts = $conn->prepare("SELECT COUNT(*) as count FROM posts WHERE primary_category_id = ?");
+            $checkPosts->execute([$categoryId]);
+            $postCount = $checkPosts->fetch(PDO::FETCH_ASSOC)['count'];
+            
+            if ($postCount > 0) {
+                $updateStmt = $conn->prepare("UPDATE categories SET status = 'archived' WHERE id = ?");
+                $updateStmt->execute([$categoryId]);
+                $success = 'Category archived successfully (it has ' . $postCount . ' posts).';
+            } else {
+                $deleteStmt = $conn->prepare("DELETE FROM categories WHERE id = ?");
+                $deleteStmt->execute([$categoryId]);
+                $success = 'Category deleted successfully.';
+            }
+            
+            header('Location: /admin/categories.php?success=' . urlencode($success));
+            exit;
+        } catch (PDOException $e) {
+            error_log("Error deleting category: " . $e->getMessage());
+            $error = 'Failed to delete category. Please try again.';
+        }
+    }
+}
+
+$success = isset($_GET['success']) ? $_GET['success'] : '';
+$error = isset($error) ? $error : '';
+?>
 <!doctype html>
 <html lang="en">
 
@@ -27,102 +62,113 @@
             <div class="d-flex gap-3 admin-layout align-items-stretch">
                 <?php include 'incs/sidebar.php'; ?>
                 <div class="admin-content flex-grow-1">
+                    <?php if ($error): ?>
+                        <div class="alert alert-danger" style="padding: 1rem; border-radius: 8px; margin-bottom: 1.5rem; background-color: #fee2e2; color: #991b1b; border: 1px solid #fecaca;">
+                            <?php echo htmlspecialchars($error); ?>
+                        </div>
+                    <?php endif; ?>
+                    <?php if ($success): ?>
+                        <div class="alert alert-success" style="padding: 1rem; border-radius: 8px; margin-bottom: 1.5rem; background-color: #d1fae5; color: #065f46; border: 1px solid #a7f3d0;">
+                            <?php echo htmlspecialchars($success); ?>
+                        </div>
+                    <?php endif; ?>
                     <?php
-                        $categories = [
-                            [
-                                'name' => 'Motion Design',
-                                'summary' => 'Micro-interactions, transitions, prototype demos and animation principles.',
-                                'posts' => 42,
-                                'engagement' => '27% of reads',
-                                'updated' => 'Updated 3h ago',
-                                'status' => 'Featured',
-                                'color' => 'primary'
-                            ],
-                            [
-                                'name' => 'Interface',
-                                'summary' => 'Nordic interface patterns, components, and modular UI systems.',
-                                'posts' => 31,
-                                'engagement' => '19% of reads',
-                                'updated' => 'Updated yesterday',
-                                'status' => 'Growing',
-                                'color' => 'secondary'
-                            ],
-                            [
-                                'name' => 'Process',
-                                'summary' => 'Behind-the-scenes rituals, workflows, and creative strategy retrospectives.',
-                                'posts' => 24,
-                                'engagement' => '14% of reads',
-                                'updated' => 'Updated 2 days ago',
-                                'status' => 'Steady',
-                                'color' => 'neutral'
-                            ],
-                            [
-                                'name' => 'Accessibility',
-                                'summary' => 'Inclusive design systems, motion safety, and sensory-aware storytelling.',
-                                'posts' => 18,
-                                'engagement' => '11% of reads',
-                                'updated' => 'Updated 5 days ago',
-                                'status' => 'Priority',
-                                'color' => 'accent'
-                            ],
-                            [
-                                'name' => 'Culture',
-                                'summary' => 'Community spotlights, playlists, and creative rituals from the field.',
-                                'posts' => 15,
-                                'engagement' => '9% of reads',
-                                'updated' => 'Updated 1 week ago',
-                                'status' => 'Emerging',
-                                'color' => 'lilac'
-                            ],
-                        ];
-
-                        $spotlight = [
-                            'name' => 'Motion Design',
-                            'momentum' => '+18% MoM',
-                            'audience' => 'Creative technologists & product teams',
-                            'next_release' => 'Nov 05 · Motion Systems 201',
-                            'notes' => [
-                                'Keep hero video length under 45s for best completion.',
-                                'Add accessibility callouts to every tutorial section.',
-                                'Highlight new After Effects templates in CTA block.'
-                            ]
-                        ];
-
-                        $initiatives = [
-                            [
-                                'title' => 'Launch "Nordic Patterns" mini-series',
-                                'lead' => 'Ava',
-                                'status' => 'Scripting',
-                                'due' => 'Nov 08'
-                            ],
-                            [
-                                'title' => 'Refresh Accessibility resource hub',
-                                'lead' => 'Jonas',
-                                'status' => 'Content audit',
-                                'due' => 'Nov 12'
-                            ],
-                            [
-                                'title' => 'Curate Q4 guest author roster',
-                                'lead' => 'Maya',
-                                'status' => 'Outreach',
-                                'due' => 'Nov 20'
-                            ],
-                        ];
-
-                        $taxonomyTasks = [
-                            [
-                                'label' => 'Tag October backlog posts with updated taxonomy',
-                                'priority' => 'Today'
-                            ],
-                            [
-                                'label' => 'Archive deprecated "Inspiration" category assets',
-                                'priority' => 'This week'
-                            ],
-                            [
-                                'label' => 'Review synonyms for "storyboarding" keyword map',
-                                'priority' => 'Next week'
-                            ],
-                        ];
+                        function timeAgo($datetime) {
+                            if (!$datetime) return 'Never updated';
+                            $timestamp = strtotime($datetime);
+                            $diff = time() - $timestamp;
+                            
+                            if ($diff < 3600) {
+                                $mins = floor($diff / 60);
+                                return $mins > 0 ? 'Updated ' . $mins . 'm ago' : 'Updated just now';
+                            } elseif ($diff < 86400) {
+                                $hours = floor($diff / 3600);
+                                return 'Updated ' . $hours . 'h ago';
+                            } elseif ($diff < 604800) {
+                                $days = floor($diff / 86400);
+                                return 'Updated ' . $days . ' day' . ($days > 1 ? 's' : '') . ' ago';
+                            } else {
+                                return 'Updated ' . date('M j', $timestamp);
+                            }
+                        }
+                        
+                        try {
+                            $categoriesQuery = "
+                                SELECT c.id, c.name, c.summary, c.status, c.updated_at,
+                                       COUNT(p.id) as posts_count,
+                                       SUM(p.views_count) as total_views
+                                FROM categories c
+                                LEFT JOIN posts p ON c.id = p.primary_category_id AND p.status = 'published'
+                                WHERE c.status != 'archived'
+                                GROUP BY c.id, c.name, c.summary, c.status, c.updated_at
+                                ORDER BY c.display_order ASC, c.name ASC
+                            ";
+                            $categoriesStmt = $conn->prepare($categoriesQuery);
+                            $categoriesStmt->execute();
+                            $categoriesData = $categoriesStmt->fetchAll(PDO::FETCH_ASSOC);
+                            
+                            $colors = ['primary', 'secondary', 'neutral', 'accent', 'lilac'];
+                            $totalViews = array_sum(array_column($categoriesData, 'total_views'));
+                            
+                            $categories = [];
+                            foreach ($categoriesData as $index => $cat) {
+                                $percentage = $totalViews > 0 ? round(($cat['total_views'] / $totalViews) * 100) : 0;
+                                $statusLabels = [
+                                    'active' => 'Active',
+                                    'featured' => 'Featured',
+                                    'growing' => 'Growing',
+                                    'steady' => 'Steady',
+                                    'priority' => 'Priority',
+                                    'emerging' => 'Emerging'
+                                ];
+                                
+                                $categories[] = [
+                                    'id' => $cat['id'],
+                                    'name' => $cat['name'],
+                                    'summary' => $cat['summary'] ?: 'No description available.',
+                                    'posts' => $cat['posts_count'],
+                                    'engagement' => $percentage > 0 ? $percentage . '% of views' : 'No views yet',
+                                    'updated' => timeAgo($cat['updated_at']),
+                                    'status' => $statusLabels[$cat['status']] ?? 'Active',
+                                    'color' => $colors[$index % count($colors)]
+                                ];
+                            }
+                            
+                            $spotlightQuery = "
+                                SELECT c.name, 
+                                       SUM(p.views_count) as total_views,
+                                       COUNT(p.id) as post_count
+                                FROM categories c
+                                LEFT JOIN posts p ON c.id = p.primary_category_id AND p.status = 'published'
+                                WHERE c.status IN ('featured', 'active', 'growing')
+                                GROUP BY c.id, c.name
+                                HAVING total_views > 0
+                                ORDER BY c.status = 'featured' DESC, total_views DESC
+                                LIMIT 1
+                            ";
+                            $spotlightData = $conn->query($spotlightQuery)->fetch(PDO::FETCH_ASSOC);
+                            
+                            if ($spotlightData) {
+                                $spotlight = [
+                                    'name' => $spotlightData['name'],
+                                    'momentum' => $spotlightData['post_count'] . ' posts',
+                                    'audience' => 'Top performing category',
+                                    'next_release' => '—',
+                                    'notes' => [
+                                        'This category has ' . $spotlightData['total_views'] . ' total views.',
+                                        'Consider creating more content in this category.',
+                                        'Engage with comments and feedback.'
+                                    ]
+                                ];
+                            } else {
+                                $spotlight = null;
+                            }
+                            
+                        } catch (PDOException $e) {
+                            error_log("Categories page error: " . $e->getMessage());
+                            $categories = [];
+                            $spotlight = null;
+                        }
                     ?>
 
                     <header class="page-header">
@@ -171,112 +217,123 @@
                                 </button>
                             </header>
                             <ul class="category-list">
-                                <?php foreach ($categories as $category) : ?>
-                                    <li class="category-item">
-                                        <div class="category-item-header">
-                                            <div class="category-name">
-                                                <span class="category-dot category-dot-<?php echo $category['color']; ?>"></span>
-                                                <div>
-                                                    <strong><?php echo $category['name']; ?></strong>
-                                                    <p><?php echo $category['summary']; ?></p>
-                                                </div>
-                                            </div>
-                                            <span class="category-status status-<?php echo strtolower($category['status']); ?>"><?php echo $category['status']; ?></span>
-                                        </div>
-                                        <div class="category-item-metrics">
-                                            <span><ion-icon name="document-text-outline"></ion-icon><?php echo $category['posts']; ?> posts</span>
-                                            <span><ion-icon name="pulse-outline"></ion-icon><?php echo $category['engagement']; ?></span>
-                                            <span><ion-icon name="time-outline"></ion-icon><?php echo $category['updated']; ?></span>
-                                        </div>
-                                        <div class="category-item-actions">
-                                            <button type="button" class="category-action">
-                                                <ion-icon name="open-outline"></ion-icon>
-                                                <span>Open board</span>
-                                            </button>
-                                            <button type="button" class="category-action ghost">
-                                                <ion-icon name="analytics-outline"></ion-icon>
-                                                <span>Insights</span>
-                                            </button>
-                                        </div>
+                                <?php if (empty($categories)): ?>
+                                    <li class="category-item" style="text-align: center; padding: 2rem; color: #6b7280;">
+                                        No categories yet. <a href="/admin/category-create.php">Create your first category</a>
                                     </li>
-                                <?php endforeach; ?>
+                                <?php else: ?>
+                                    <?php foreach ($categories as $category) : ?>
+                                        <li class="category-item">
+                                            <div class="category-item-header">
+                                                <div class="category-name">
+                                                    <span class="category-dot category-dot-<?php echo $category['color']; ?>"></span>
+                                                    <div>
+                                                        <strong><?php echo htmlspecialchars($category['name']); ?></strong>
+                                                        <p><?php echo htmlspecialchars($category['summary']); ?></p>
+                                                    </div>
+                                                </div>
+                                                <span class="category-status status-<?php echo strtolower($category['status']); ?>"><?php echo htmlspecialchars($category['status']); ?></span>
+                                            </div>
+                                            <div class="category-item-metrics">
+                                                <span><ion-icon name="document-text-outline"></ion-icon><?php echo $category['posts']; ?> posts</span>
+                                                <span><ion-icon name="pulse-outline"></ion-icon><?php echo $category['engagement']; ?></span>
+                                                <span><ion-icon name="time-outline"></ion-icon><?php echo $category['updated']; ?></span>
+                                            </div>
+                                            <div class="category-item-actions">
+                                                <div>
+                                                <a href="/admin/category-create.php?edit=<?php echo $category['id']; ?>" class="category-action">
+                                                    <ion-icon name="create-outline"></ion-icon>
+                                                    <span>Edit</span>
+                                                </a>
+                                                </div>
+                                                <form method="POST" style="display: inline;" onsubmit="return confirm('Are you sure you want to delete this category? This action cannot be undone.');">
+                                                    <input type="hidden" name="category_id" value="<?php echo $category['id']; ?>">
+                                                    <button type="submit" name="delete_category" class="category-action ghost" style="color: #ef4444;">
+                                                        <ion-icon name="trash-outline"></ion-icon>
+                                                        <span>Delete</span>
+                                                    </button>
+                                                </form>
+                                            </div>
+                                        </li>
+                                    <?php endforeach; ?>
+                                <?php endif; ?>
                             </ul>
                         </article>
 
                         <div class="category-side-stack">
+                            <?php if ($spotlight): ?>
                             <article class="panel-card spotlight-panel">
                                 <header class="panel-header">
                                     <div>
                                         <span class="panel-kicker">Spotlight</span>
-                                        <h2 class="panel-title"><?php echo $spotlight['name']; ?> snapshot</h2>
+                                        <h2 class="panel-title"><?php echo htmlspecialchars($spotlight['name']); ?> snapshot</h2>
                                     </div>
-                                    <span class="badge badge-soft">Momentum <?php echo $spotlight['momentum']; ?></span>
+                                    <span class="badge badge-soft"><?php echo htmlspecialchars($spotlight['momentum']); ?></span>
                                 </header>
                                 <div class="spotlight-body">
                                     <div class="spotlight-meta">
                                         <div>
                                             <span class="label">Audience resonance</span>
-                                            <strong><?php echo $spotlight['audience']; ?></strong>
+                                            <strong><?php echo htmlspecialchars($spotlight['audience']); ?></strong>
                                         </div>
                                         <div>
-                                            <span class="label">Next release</span>
-                                            <strong><?php echo $spotlight['next_release']; ?></strong>
+                                            <span class="label">Status</span>
+                                            <strong><?php echo htmlspecialchars($spotlight['next_release']); ?></strong>
                                         </div>
                                     </div>
                                     <ul class="spotlight-notes">
                                         <?php foreach ($spotlight['notes'] as $note) : ?>
                                             <li>
                                                 <ion-icon name="checkmark-circle-outline"></ion-icon>
-                                                <span><?php echo $note; ?></span>
+                                                <span><?php echo htmlspecialchars($note); ?></span>
                                             </li>
                                         <?php endforeach; ?>
                                     </ul>
                                 </div>
                             </article>
+                            <?php endif; ?>
 
                             <article class="panel-card initiatives-panel">
                                 <header class="panel-header">
                                     <div>
-                                        <span class="panel-kicker">Initiatives</span>
-                                        <h2 class="panel-title">In-flight programs</h2>
+                                        <span class="panel-kicker">Quick Stats</span>
+                                        <h2 class="panel-title">Category overview</h2>
                                     </div>
                                 </header>
                                 <ul class="initiatives-list">
-                                    <?php foreach ($initiatives as $initiative) : ?>
-                                        <li>
-                                            <div>
-                                                <strong><?php echo $initiative['title']; ?></strong>
-                                                <span class="tag">Lead · <?php echo $initiative['lead']; ?></span>
-                                            </div>
-                                            <div class="initiative-meta">
-                                                <span><?php echo $initiative['status']; ?></span>
-                                                <span class="badge badge-soft">Due <?php echo $initiative['due']; ?></span>
-                                            </div>
-                                        </li>
-                                    <?php endforeach; ?>
+                                    <?php
+                                    $totalCategories = count($categories);
+                                    $totalPosts = array_sum(array_column($categories, 'posts'));
+                                    $avgPostsPerCategory = $totalCategories > 0 ? round($totalPosts / $totalCategories, 1) : 0;
+                                    ?>
+                                    <li>
+                                        <div>
+                                            <strong>Total Categories</strong>
+                                            <span class="tag"><?php echo $totalCategories; ?> active</span>
+                                        </div>
+                                        <div class="initiative-meta">
+                                            <span>All categories</span>
+                                        </div>
+                                    </li>
+                                    <li>
+                                        <div>
+                                            <strong>Total Posts</strong>
+                                            <span class="tag"><?php echo $totalPosts; ?> posts</span>
+                                        </div>
+                                        <div class="initiative-meta">
+                                            <span>Across all categories</span>
+                                        </div>
+                                    </li>
+                                    <li>
+                                        <div>
+                                            <strong>Average Posts</strong>
+                                            <span class="tag"><?php echo $avgPostsPerCategory; ?> per category</span>
+                                        </div>
+                                        <div class="initiative-meta">
+                                            <span>Distribution</span>
+                                        </div>
+                                    </li>
                                 </ul>
-                            </article>
-
-                            <article class="panel-card taxonomy-panel">
-                                <header class="panel-header">
-                                    <div>
-                                        <span class="panel-kicker">Governance</span>
-                                        <h2 class="panel-title">Housekeeping</h2>
-                                    </div>
-                                </header>
-                                <ul class="taxonomy-task-list">
-                                    <?php foreach ($taxonomyTasks as $task) : ?>
-                                        <li>
-                                            <ion-icon name="checkbox-outline"></ion-icon>
-                                            <span><?php echo $task['label']; ?></span>
-                                            <span class="task-priority"><?php echo $task['priority']; ?></span>
-                                        </li>
-                                    <?php endforeach; ?>
-                                </ul>
-                                <button type="button" class="category-action full-width">
-                                    <ion-icon name="add-outline"></ion-icon>
-                                    <span>Add task</span>
-                                </button>
                             </article>
                         </div>
                     </section>

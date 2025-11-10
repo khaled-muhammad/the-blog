@@ -242,12 +242,17 @@
     letter-spacing: 0.08em;
     box-shadow: 0 16px 28px rgba(34, 44, 68, 0.12);
     transition: transform 0.2s ease;
+    text-decoration: none;
+    cursor: pointer;
+    font-size: 0.875rem;
 }
 
 .table-action:hover,
 .table-action:focus {
     transform: translateY(-2px);
     outline: none;
+    text-decoration: none;
+    color: #2f3a4c;
 }
 
 .table-action.ghost {
@@ -331,6 +336,22 @@
 
 .status-chip.status-draft {
     background: linear-gradient(135deg, #4d6f91, #79a7c7);
+}
+
+.status-chip.status-pending {
+    background: linear-gradient(135deg, #ff9f1c, #ffc14f);
+}
+
+.status-chip.status-approved {
+    background: linear-gradient(135deg, #25b25b, #66d37c);
+}
+
+.status-chip.status-spam {
+    background: linear-gradient(135deg, #ef4444, #f87171);
+}
+
+.status-chip.status-trash {
+    background: linear-gradient(135deg, #6b7280, #9ca3af);
 }
 
 .category-tag {

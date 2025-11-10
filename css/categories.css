@@ -90,6 +90,8 @@
     text-transform: uppercase;
     letter-spacing: 0.08em;
     transition: transform 0.2s ease, box-shadow 0.2s ease;
+    text-decoration: none;
+    cursor: pointer;
 }
 
 .filter-chip:hover,
@@ -97,12 +99,19 @@
     transform: translateY(-2px);
     box-shadow: 0 16px 28px rgba(34, 44, 68, 0.12);
     outline: none;
+    text-decoration: none;
+    color: #3c4459;
 }
 
 .filter-chip.active {
     background: linear-gradient(135deg, #fe5038, #ff2b87);
     color: white;
     box-shadow: 0 18px 32px rgba(255, 43, 135, 0.28);
+}
+
+.filter-chip.active:hover,
+.filter-chip.active:focus {
+    color: white;
 }
 
 .filter-chip.ghost {
@@ -262,12 +271,17 @@
     text-transform: uppercase;
     box-shadow: 0 16px 28px rgba(34, 44, 68, 0.12);
     transition: transform 0.2s ease;
+    text-decoration: none;
+    cursor: pointer;
+    font-size: 0.875rem;
 }
 
 .category-action:hover,
 .category-action:focus {
     transform: translateY(-2px);
     outline: none;
+    text-decoration: none;
+    color: #2f3a4c;
 }
 
 .category-action.ghost {

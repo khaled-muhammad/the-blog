@@ -42,7 +42,7 @@
                                     </a>
                                 </li>
                                 <li class="nav-item">
-                                    <a class="nav-link logout-link" href="#">
+                                    <a class="nav-link logout-link" href="/logout.php">
                                         <ion-icon name="log-out-outline"></ion-icon>
                                         <span>Logout</span>
                                     </a>

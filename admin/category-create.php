@@ -1,8 +1,182 @@
+<?php
+require_once '../config.php';
+requireAuth();
+
+$error = '';
+$success = '';
+$currentUser = getCurrentUser();
+$isEdit = isset($_GET['edit']) && intval($_GET['edit']) > 0;
+$categoryId = $isEdit ? intval($_GET['edit']) : null;
+$categoryData = null;
+
+if ($isEdit && $categoryId) {
+    try {
+        $categoryQuery = "SELECT * FROM categories WHERE id = ?";
+        $categoryStmt = $conn->prepare($categoryQuery);
+        $categoryStmt->execute([$categoryId]);
+        $categoryData = $categoryStmt->fetch(PDO::FETCH_ASSOC);
+        
+        if (!$categoryData) {
+            $error = 'Category not found.';
+            $isEdit = false;
+            $categoryId = null;
+        }
+    } catch (PDOException $e) {
+        error_log("Error loading category: " . $e->getMessage());
+        $error = 'Failed to load category.';
+        $isEdit = false;
+        $categoryId = null;
+    }
+}
+
+try {
+    $usersQuery = "SELECT id, username, first_name, last_name, display_name FROM users WHERE status = 'active' ORDER BY display_name, first_name ASC";
+    $usersStmt = $conn->prepare($usersQuery);
+    $usersStmt->execute();
+    $users = $usersStmt->fetchAll(PDO::FETCH_ASSOC);
+} catch (PDOException $e) {
+    error_log("Error fetching form data: " . $e->getMessage());
+    $users = [];
+}
+
+$paletteOptions = [
+    ['value' => 'sunrise', 'label' => 'Sunrise Gradient', 'colors' => '#fe5038 → #ff2b87'],
+    ['value' => 'fjord', 'label' => 'Fjord Mist', 'colors' => '#4d6f91 → #79a7c7'],
+    ['value' => 'sage', 'label' => 'Sage Meadow', 'colors' => '#66d37c → #a5e0b9'],
+    ['value' => 'ember', 'label' => 'Ember Glow', 'colors' => '#ff9f1c → #ffc14f'],
+    ['value' => 'aurora', 'label' => 'Aurora Veil', 'colors' => '#8a84ff → #c39bff'],
+];
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $editId = isset($_POST['category_id']) ? intval($_POST['category_id']) : null;
+    $isEdit = $editId > 0;
+    
+    $name = trim($_POST['name'] ?? '');
+    $slug = trim($_POST['slug'] ?? '');
+    $summary = trim($_POST['intro'] ?? '');
+    $description = trim($_POST['description'] ?? '');
+    $palette = $_POST['palette'] ?? 'sunrise';
+    $icon = trim($_POST['icon'] ?? '');
+    $curatorId = !empty($_POST['curator']) ? (int)$_POST['curator'] : null;
+    $status = $_POST['status'] ?? 'active';
+    
+    if (empty($name)) {
+        $error = 'Category name is required.';
+    } else {
+        if (empty($slug)) {
+            $slug = generateSlug($name);
+        } else {
+            $slug = generateSlug($slug);
+        }
+        
+        $slugCheck = $conn->prepare("SELECT id FROM categories WHERE slug = ?" . ($isEdit ? " AND id != ?" : ""));
+        if ($isEdit) {
+            $slugCheck->execute([$slug, $editId]);
+        } else {
+            $slugCheck->execute([$slug]);
+        }
+        if ($slugCheck->fetch()) {
+            $slug .= '-' . time();
+        }
+        
+        try {
+            $conn->beginTransaction();
+            
+            $heroMediaId = null;
+            if (!empty($_FILES['hero']['name']) && $_FILES['hero']['error'] === UPLOAD_ERR_OK) {
+                $heroMediaId = uploadMedia($_FILES['hero'], $currentUser['id']);
+            } elseif ($isEdit && $categoryData) {
+                $heroMediaId = $categoryData['hero_media_id'];
+            }
+            
+            if ($isEdit) {
+                $updateCategory = $conn->prepare("
+                    UPDATE categories SET
+                        name = ?, slug = ?, summary = ?, description = ?, 
+                        hero_media_id = ?, icon = ?, palette = ?, 
+                        color_theme = ?, status = ?, updated_at = NOW()
+                    WHERE id = ?
+                ");
+                
+                $updateCategory->execute([
+                    $name,
+                    $slug,
+                    $summary ?: null,
+                    $description ?: null,
+                    $heroMediaId,
+                    $icon ?: null,
+                    $palette,
+                    $palette,
+                    $status,
+                    $editId
+                ]);
+                
+                $deleteCurators = $conn->prepare("DELETE FROM category_curators WHERE category_id = ?");
+                $deleteCurators->execute([$editId]);
+                
+                if ($curatorId) {
+                    $insertCurator = $conn->prepare("
+                        INSERT INTO category_curators (category_id, user_id, is_lead, created_at)
+                        VALUES (?, ?, TRUE, NOW())
+                    ");
+                    $insertCurator->execute([$editId, $curatorId]);
+                }
+                
+                $success = 'Category updated successfully!';
+            } else {
+                $maxOrder = $conn->query("SELECT COALESCE(MAX(display_order), 0) as max_order FROM categories")->fetch(PDO::FETCH_ASSOC)['max_order'] ?? 0;
+                $displayOrder = $maxOrder + 1;
+                
+                $insertCategory = $conn->prepare("
+                    INSERT INTO categories (
+                        name, slug, summary, description, hero_media_id, icon, palette, 
+                        color_theme, status, display_order, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+                ");
+                
+                $insertCategory->execute([
+                    $name,
+                    $slug,
+                    $summary ?: null,
+                    $description ?: null,
+                    $heroMediaId,
+                    $icon ?: null,
+                    $palette,
+                    $palette,
+                    $status,
+                    $displayOrder
+                ]);
+                
+                $categoryId = $conn->lastInsertId();
+                
+                if ($curatorId) {
+                    $insertCurator = $conn->prepare("
+                        INSERT INTO category_curators (category_id, user_id, is_lead, created_at)
+                        VALUES (?, ?, TRUE, NOW())
+                    ");
+                    $insertCurator->execute([$categoryId, $curatorId]);
+                }
+                
+                $success = 'Category created successfully!';
+            }
+            
+            $conn->commit();
+            
+            header("Refresh: 2; url=/admin/categories.php");
+            
+        } catch (PDOException $e) {
+            $conn->rollBack();
+            error_log("Error saving category: " . $e->getMessage());
+            $error = 'Failed to save category. Please try again.';
+        }
+    }
+}
+?>
 <!doctype html>
 <html lang="en">
 
 <head>
-    <title>The Blog | Create Category</title>
+    <title>The Blog | <?php echo $isEdit ? 'Edit' : 'Create'; ?> Category</title>
     <!-- Required meta tags -->
     <meta charset="utf-8" />
     <meta
@@ -18,6 +192,23 @@
     <link rel="stylesheet" href="../css/styles.css">
     <link rel="stylesheet" href="../css/admin.css">
     <link rel="stylesheet" href="../css/category-create.css">
+    <style>
+        .alert {
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 1.5rem;
+        }
+        .alert-success {
+            background-color: #d1fae5;
+            color: #065f46;
+            border: 1px solid #a7f3d0;
+        }
+        .alert-danger {
+            background-color: #fee2e2;
+            color: #991b1b;
+            border: 1px solid #fecaca;
+        }
+    </style>
 </head>
 
 <body>
@@ -27,38 +218,23 @@
             <div class="d-flex gap-3 admin-layout align-items-stretch">
                 <?php include 'incs/sidebar.php'; ?>
                 <div class="admin-content flex-grow-1">
-                    <?php
-                        $paletteOptions = [
-                            ['value' => 'sunrise', 'label' => 'Sunrise Gradient', 'colors' => '#fe5038 → #ff2b87'],
-                            ['value' => 'fjord', 'label' => 'Fjord Mist', 'colors' => '#4d6f91 → #79a7c7'],
-                            ['value' => 'sage', 'label' => 'Sage Meadow', 'colors' => '#66d37c → #a5e0b9'],
-                            ['value' => 'ember', 'label' => 'Ember Glow', 'colors' => '#ff9f1c → #ffc14f'],
-                            ['value' => 'aurora', 'label' => 'Aurora Veil', 'colors' => '#8a84ff → #c39bff'],
-                        ];
-
-                        $curators = ['Ava Larsen', 'Jonas Holm', 'Maya Richter', 'Elin Skarsgard'];
-                        $modules = ['Spotlight carousel', 'Hero playlist', 'Starter toolkit', 'Case study stack'];
-                        $tagSuggestions = ['motion systems', 'micro-interactions', 'rituals', 'Nordic UI', 'storyboarding'];
-                    ?>
+                    <?php if ($error): ?>
+                        <div class="alert alert-danger"><?php echo htmlspecialchars($error); ?></div>
+                    <?php endif; ?>
+                    <?php if ($success): ?>
+                        <div class="alert alert-success"><?php echo htmlspecialchars($success); ?> Redirecting...</div>
+                    <?php endif; ?>
 
                     <header class="page-header create-header">
                         <div>
                             <span class="page-kicker">Collection Design</span>
-                            <h1 class="page-title">Launch a new category</h1>
-                            <p class="page-lede">Shape the discovery experience, define the visual language, and sync publishing modules with confidence.</p>
+                            <h1 class="page-title"><?php echo $isEdit ? 'Edit Category' : 'Launch a new category'; ?></h1>
+                            <p class="page-lede"><?php echo $isEdit ? 'Update category details and settings.' : 'Shape the discovery experience, define the visual language, and sync publishing modules with confidence.'; ?></p>
                         </div>
                         <div class="header-actions">
-                            <button type="button" class="ghost-btn">
-                                <ion-icon name="eye-outline"></ion-icon>
-                                <span>Preview</span>
-                            </button>
-                            <button type="button" class="ghost-btn">
-                                <ion-icon name="save-outline"></ion-icon>
-                                <span>Save draft</span>
-                            </button>
                             <button type="submit" form="create-category-form" class="btn btn-dashboard">
-                                <ion-icon name="rocket-outline"></ion-icon>
-                                <span>Publish</span>
+                                <ion-icon name="checkmark-circle-outline"></ion-icon>
+                                <span><?php echo $isEdit ? 'Update Category' : 'Create Category'; ?></span>
                             </button>
                         </div>
                     </header>
@@ -70,46 +246,78 @@
                                     <span class="panel-kicker">Identity</span>
                                     <h2 class="panel-title">Category essentials</h2>
                                 </div>
-                                <span class="badge badge-soft">Autosave enabled</span>
                             </header>
                             <div class="form-stack">
+                                <?php if ($isEdit): ?>
+                                    <input type="hidden" name="category_id" value="<?php echo $categoryId; ?>">
+                                <?php endif; ?>
                                 <div class="form-group">
                                     <label for="category-name">Category name</label>
-                                    <input type="text" id="category-name" name="name" placeholder="Nordic Motion Systems" required>
+                                    <input type="text" id="category-name" name="name" placeholder="Nordic Motion Systems" value="<?php echo htmlspecialchars($categoryData['name'] ?? ''); ?>" required>
                                 </div>
                                 <div class="dual-group">
                                     <div class="form-group">
                                         <label for="category-slug">Slug</label>
                                         <div class="input-prefix">
                                             <span>/category/</span>
-                                            <input type="text" id="category-slug" name="slug" placeholder="nordic-motion-systems" required>
+                                            <input type="text" id="category-slug" name="slug" placeholder="nordic-motion-systems" value="<?php echo htmlspecialchars($categoryData['slug'] ?? ''); ?>" required>
                                         </div>
                                     </div>
                                     <div class="form-group">
-                                        <label for="category-curator">Lead curator</label>
-                                        <select id="category-curator" name="curator">
-                                            <option value="" disabled selected>Select curator</option>
-                                            <?php foreach ($curators as $curator) : ?>
-                                                <option value="<?php echo strtolower(str_replace(' ', '-', $curator)); ?>"><?php echo $curator; ?></option>
-                                            <?php endforeach; ?>
+                                        <label for="category-status">Status</label>
+                                        <select id="category-status" name="status">
+                                            <option value="active" <?php echo ($categoryData['status'] ?? 'active') === 'active' ? 'selected' : ''; ?>>Active</option>
+                                            <option value="featured" <?php echo ($categoryData['status'] ?? '') === 'featured' ? 'selected' : ''; ?>>Featured</option>
+                                            <option value="growing" <?php echo ($categoryData['status'] ?? '') === 'growing' ? 'selected' : ''; ?>>Growing</option>
+                                            <option value="steady" <?php echo ($categoryData['status'] ?? '') === 'steady' ? 'selected' : ''; ?>>Steady</option>
+                                            <option value="priority" <?php echo ($categoryData['status'] ?? '') === 'priority' ? 'selected' : ''; ?>>Priority</option>
+                                            <option value="emerging" <?php echo ($categoryData['status'] ?? '') === 'emerging' ? 'selected' : ''; ?>>Emerging</option>
+                                            <option value="archived" <?php echo ($categoryData['status'] ?? '') === 'archived' ? 'selected' : ''; ?>>Archived</option>
                                         </select>
                                     </div>
                                 </div>
                                 <div class="form-group">
+                                    <label for="category-curator">Lead curator</label>
+                                    <select id="category-curator" name="curator">
+                                        <option value="" <?php echo !isset($categoryData['curator_id']) ? 'selected' : ''; ?>>No curator</option>
+                                        <?php 
+                                        $currentCuratorId = null;
+                                        if ($isEdit && $categoryId) {
+                                            try {
+                                                $curatorQuery = "SELECT user_id FROM category_curators WHERE category_id = ? AND is_lead = TRUE LIMIT 1";
+                                                $curatorStmt = $conn->prepare($curatorQuery);
+                                                $curatorStmt->execute([$categoryId]);
+                                                $curator = $curatorStmt->fetch(PDO::FETCH_ASSOC);
+                                                $currentCuratorId = $curator['user_id'] ?? null;
+                                            } catch (PDOException $e) {
+                                                error_log("Error loading curator: " . $e->getMessage());
+                                            }
+                                        }
+                                        foreach ($users as $user) : 
+                                            $displayName = $user['display_name'] ?: ($user['first_name'] . ' ' . $user['last_name']);
+                                        ?>
+                                            <option value="<?php echo $user['id']; ?>" <?php echo $currentCuratorId == $user['id'] ? 'selected' : ''; ?>><?php echo htmlspecialchars($displayName); ?></option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </div>
+                                </div>
+                                <div class="form-group">
                                     <label for="category-intro">Introduction</label>
-                                    <textarea id="category-intro" name="intro" rows="3" placeholder="Describe the promise of this category in one vivid paragraph..."></textarea>
+                                    <textarea id="category-intro" name="intro" rows="3" placeholder="Describe the promise of this category in one vivid paragraph..."><?php echo htmlspecialchars($categoryData['summary'] ?? ''); ?></textarea>
                                 </div>
                                 <div class="form-group">
                                     <label for="category-description">Long description</label>
-                                    <textarea id="category-description" name="description" rows="6" placeholder="How does this collection serve the audience? Outline tone, purpose, and core coverage..."></textarea>
+                                    <textarea id="category-description" name="description" rows="6" placeholder="How does this collection serve the audience? Outline tone, purpose, and core coverage..."><?php echo htmlspecialchars($categoryData['description'] ?? ''); ?></textarea>
                                 </div>
                                 <div class="dual-group">
                                     <div class="form-group palette-grid" role="group" aria-label="Palette options">
                                         <span class="field-label">Palette</span>
                                         <div class="palette-options">
-                                            <?php foreach ($paletteOptions as $palette) : ?>
+                                            <?php 
+                                            $currentPalette = $categoryData['palette'] ?? 'sunrise';
+                                            foreach ($paletteOptions as $palette) : ?>
                                                 <label class="palette-card">
-                                                    <input type="radio" name="palette" value="<?php echo $palette['value']; ?>" <?php echo $palette['value'] === 'sunrise' ? 'checked' : ''; ?>>
+                                                    <input type="radio" name="palette" value="<?php echo $palette['value']; ?>" <?php echo $palette['value'] === $currentPalette ? 'checked' : ''; ?>>
                                                     <span class="swatch"></span>
                                                     <div>
                                                         <strong><?php echo $palette['label']; ?></strong>
@@ -121,20 +329,8 @@
                                     </div>
                                     <div class="form-group">
                                         <label for="category-icon">Icon keyword</label>
-                                        <input type="text" id="category-icon" name="icon" placeholder="ion-flash-outline">
+                                        <input type="text" id="category-icon" name="icon" placeholder="ion-flash-outline" value="<?php echo htmlspecialchars($categoryData['icon'] ?? ''); ?>">
                                         <p class="field-hint">Uses Ionicons — keep it descriptive & accessible.</p>
-                                    </div>
-                                </div>
-                                <div class="form-group">
-                                    <label for="category-tags">Keywords</label>
-                                    <div class="chips-input" role="listbox" aria-label="Selected tags">
-                                        <?php foreach ($tagSuggestions as $tag) : ?>
-                                            <button type="button" class="chip" aria-selected="false">
-                                                <ion-icon name="pricetag-outline"></ion-icon>
-                                                <span><?php echo $tag; ?></span>
-                                            </button>
-                                        <?php endforeach; ?>
-                                        <input type="text" id="category-tags" name="tags" placeholder="Add keyword" aria-label="Add keyword">
                                     </div>
                                 </div>
                                 <div class="form-group">
@@ -150,18 +346,14 @@
                                 </div>
                             </div>
                             <div class="form-footer">
-                                <div class="autosave">
-                                    <span class="dot"></span>
-                                    <span>Last autosave · moments ago</span>
-                                </div>
                                 <div class="footer-actions">
                                     <button type="reset" class="ghost-btn">
                                         <ion-icon name="refresh-outline"></ion-icon>
                                         <span>Reset</span>
                                     </button>
                                     <button type="submit" class="btn btn-dashboard">
-                                        <ion-icon name="arrow-forward-circle-outline"></ion-icon>
-                                        <span>Save category</span>
+                                        <ion-icon name="checkmark-circle-outline"></ion-icon>
+                                        <span><?php echo $isEdit ? 'Update Category' : 'Create Category'; ?></span>
                                     </button>
                                 </div>
                             </div>
@@ -277,6 +469,23 @@
     <script nomodule src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.js"></script>
     <script src="../js/main.js"></script>
     <script src="../js/sidebar.js"></script>
+    <script>
+        document.getElementById('category-name').addEventListener('input', function() {
+            const slugInput = document.getElementById('category-slug');
+            if (!slugInput.value || slugInput.dataset.autoGenerated === 'true') {
+                const name = this.value;
+                const slug = name.toLowerCase()
+                    .replace(/[^a-z0-9]+/g, '-')
+                    .replace(/^-+|-+$/g, '');
+                slugInput.value = slug;
+                slugInput.dataset.autoGenerated = 'true';
+            }
+        });
+        
+        document.getElementById('category-slug').addEventListener('input', function() {
+            this.dataset.autoGenerated = 'false';
+        });
+    </script>
 </body>
 
 </html>

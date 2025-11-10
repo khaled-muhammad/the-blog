@@ -1,3 +1,7 @@
+<?php
+require_once '../config.php';
+requireAuth();
+?>
 <!doctype html>
 <html lang="en">
 
@@ -28,60 +32,88 @@
                 <?php include 'incs/sidebar.php'; ?>
                 <div class="admin-content flex-grow-1">
                     <?php
-                        $posts = [
-                            [
-                                'title' => 'Animating Delightful Micro-Interactions',
-                                'status' => 'Published',
-                                'category' => 'Motion Design',
-                                'updated_at' => 'Nov 1, 2025 · 09:20',
-                                'views' => '8.4K',
-                                'comments' => 32,
-                                'trend' => '+12%'
-                            ],
-                            [
-                                'title' => 'Nordic UI: Crafting Calm Interfaces',
-                                'status' => 'Scheduled',
-                                'category' => 'Interface',
-                                'updated_at' => 'Nov 2, 2025 · 07:00',
-                                'views' => '—',
-                                'comments' => 0,
-                                'trend' => 'Queuing'
-                            ],
-                            [
-                                'title' => 'Field Notes from Creative Retreat Oslo',
-                                'status' => 'In Review',
-                                'category' => 'Process',
-                                'updated_at' => 'Oct 31, 2025 · 20:45',
-                                'views' => '2.1K',
-                                'comments' => 14,
-                                'trend' => '+4%'
-                            ],
-                            [
-                                'title' => 'Designing Accessible Motion Systems',
-                                'status' => 'Draft',
-                                'category' => 'Accessibility',
-                                'updated_at' => 'Oct 29, 2025 · 16:10',
-                                'views' => '980',
-                                'comments' => 5,
-                                'trend' => 'Needs polish'
-                            ],
-                            [
-                                'title' => 'Creative Pulse Playlist · November Edition',
-                                'status' => 'Published',
-                                'category' => 'Culture',
-                                'updated_at' => 'Oct 27, 2025 · 11:35',
-                                'views' => '5.7K',
-                                'comments' => 9,
-                                'trend' => '+6%'
-                            ],
-                        ];
-
-                        $categoryBreakdown = [
-                            ['name' => 'Motion Design', 'share' => '27%', 'color' => 'primary'],
-                            ['name' => 'Interface', 'share' => '19%', 'color' => 'secondary'],
-                            ['name' => 'Process', 'share' => '14%', 'color' => 'neutral'],
-                            ['name' => 'Culture', 'share' => '11%', 'color' => 'accent'],
-                        ];
+                        function formatNumber($num) {
+                            if ($num >= 1000) {
+                                return number_format($num / 1000, 1) . 'K';
+                            }
+                            return $num;
+                        }
+                        
+                        function formatDate($date) {
+                            if (!$date) return '—';
+                            return date('M j, Y · H:i', strtotime($date));
+                        }
+                        
+                        try {
+                            $postsQuery = "
+                                SELECT p.id, p.title, p.slug, p.status, p.views_count, p.comments_count, 
+                                       p.updated_at, p.publish_date, p.published_at,
+                                       c.name as category_name
+                                FROM posts p
+                                LEFT JOIN categories c ON p.primary_category_id = c.id
+                                ORDER BY p.updated_at DESC
+                            ";
+                            $postsStmt = $conn->prepare($postsQuery);
+                            $postsStmt->execute();
+                            $posts = $postsStmt->fetchAll(PDO::FETCH_ASSOC);
+                            
+                            $categoryBreakdownQuery = "
+                                SELECT c.name, 
+                                       COUNT(p.id) as post_count,
+                                       SUM(p.views_count) as total_views
+                                FROM categories c
+                                LEFT JOIN posts p ON c.id = p.primary_category_id AND p.status = 'published'
+                                WHERE c.status != 'archived'
+                                GROUP BY c.id, c.name
+                                HAVING post_count > 0
+                                ORDER BY post_count DESC
+                                LIMIT 4
+                            ";
+                            $categoryStmt = $conn->prepare($categoryBreakdownQuery);
+                            $categoryStmt->execute();
+                            $categoryBreakdown = $categoryStmt->fetchAll(PDO::FETCH_ASSOC);
+                            
+                            $totalPublishedPosts = $conn->query("SELECT COUNT(*) as count FROM posts WHERE status = 'published'")->fetch(PDO::FETCH_ASSOC)['count'] ?? 1;
+                            foreach ($categoryBreakdown as &$cat) {
+                                $percentage = $totalPublishedPosts > 0 ? round(($cat['post_count'] / $totalPublishedPosts) * 100) : 0;
+                                $cat['share'] = $percentage . '%';
+                            }
+                            
+                            $publishedThisMonth = $conn->query("
+                                SELECT COUNT(*) as count 
+                                FROM posts 
+                                WHERE status = 'published' 
+                                  AND MONTH(published_at) = MONTH(CURRENT_DATE())
+                                  AND YEAR(published_at) = YEAR(CURRENT_DATE())
+                            ")->fetch(PDO::FETCH_ASSOC)['count'] ?? 0;
+                            
+                            $publishedLastMonth = $conn->query("
+                                SELECT COUNT(*) as count 
+                                FROM posts 
+                                WHERE status = 'published' 
+                                  AND MONTH(published_at) = MONTH(DATE_SUB(CURRENT_DATE(), INTERVAL 1 MONTH))
+                                  AND YEAR(published_at) = YEAR(DATE_SUB(CURRENT_DATE(), INTERVAL 1 MONTH))
+                            ")->fetch(PDO::FETCH_ASSOC)['count'] ?? 0;
+                            
+                            $draftsCount = $conn->query("SELECT COUNT(*) as count FROM posts WHERE status = 'draft'")->fetch(PDO::FETCH_ASSOC)['count'] ?? 0;
+                            
+                            $avgCadence = $conn->query("
+                                SELECT AVG(DATEDIFF(p2.published_at, p1.published_at)) as avg_days
+                                FROM posts p1
+                                INNER JOIN posts p2 ON p1.id = p2.id - 1
+                                WHERE p1.status = 'published' AND p2.status = 'published'
+                                  AND p1.published_at IS NOT NULL AND p2.published_at IS NOT NULL
+                            ")->fetch(PDO::FETCH_ASSOC)['avg_days'] ?? 0;
+                            
+                        } catch (PDOException $e) {
+                            error_log("Posts page error: " . $e->getMessage());
+                            $posts = [];
+                            $categoryBreakdown = [];
+                            $publishedThisMonth = 0;
+                            $publishedLastMonth = 0;
+                            $draftsCount = 0;
+                            $avgCadence = 0;
+                        }
                     ?>
 
                     <header class="page-header">
@@ -133,32 +165,50 @@
                             <div class="posts-stats-grid">
                                 <div class="stat-pill">
                                     <span class="label">Published</span>
-                                    <strong>18</strong>
-                                    <span class="trend up"><ion-icon name="arrow-up-outline"></ion-icon> +3 vs Oct</span>
+                                    <strong><?php echo $publishedThisMonth; ?></strong>
+                                    <span class="trend <?php echo ($publishedThisMonth - $publishedLastMonth) >= 0 ? 'up' : 'neutral'; ?>">
+                                        <ion-icon name="<?php echo ($publishedThisMonth - $publishedLastMonth) >= 0 ? 'arrow-up-outline' : 'arrow-down-outline'; ?>"></ion-icon> 
+                                        <?php 
+                                        $diff = $publishedThisMonth - $publishedLastMonth;
+                                        if ($diff > 0) {
+                                            echo '+' . $diff . ' vs last month';
+                                        } elseif ($diff < 0) {
+                                            echo $diff . ' vs last month';
+                                        } else {
+                                            echo 'Same as last month';
+                                        }
+                                        ?>
+                                    </span>
                                 </div>
                                 <div class="stat-pill">
                                     <span class="label">Drafts</span>
-                                    <strong>9</strong>
+                                    <strong><?php echo $draftsCount; ?></strong>
                                     <span class="trend neutral"><ion-icon name="pause-outline"></ion-icon> Holding</span>
                                 </div>
                                 <div class="stat-pill">
                                     <span class="label">Avg. cadence</span>
-                                    <strong>3.4 days</strong>
-                                    <span class="trend up"><ion-icon name="sparkles-outline"></ion-icon> Consistent</span>
+                                    <strong><?php echo $avgCadence > 0 ? number_format($avgCadence, 1) . ' days' : '—'; ?></strong>
+                                    <span class="trend up"><ion-icon name="sparkles-outline"></ion-icon> <?php echo $avgCadence > 0 ? 'Consistent' : 'No data'; ?></span>
                                 </div>
                             </div>
+                            <?php if (!empty($categoryBreakdown)): ?>
                             <div class="category-mini">
                                 <span class="mini-title">Category share</span>
                                 <ul>
-                                    <?php foreach ($categoryBreakdown as $category) : ?>
+                                    <?php 
+                                    $colors = ['primary', 'secondary', 'neutral', 'accent'];
+                                    foreach ($categoryBreakdown as $index => $category) : 
+                                        $color = $colors[$index % count($colors)];
+                                    ?>
                                         <li>
-                                            <span class="dot dot-<?php echo $category['color']; ?>"></span>
-                                            <span><?php echo $category['name']; ?></span>
+                                            <span class="dot dot-<?php echo $color; ?>"></span>
+                                            <span><?php echo htmlspecialchars($category['name']); ?></span>
                                             <strong><?php echo $category['share']; ?></strong>
                                         </li>
                                     <?php endforeach; ?>
                                 </ul>
                             </div>
+                            <?php endif; ?>
                         </article>
 
                         <article class="panel-card posts-table-card">
@@ -188,34 +238,47 @@
                                             <th scope="col">Updated</th>
                                             <th scope="col">Views</th>
                                             <th scope="col">Comments</th>
-                                            <th scope="col" class="text-end">Trend</th>
+                                            <th scope="col" class="text-end">Actions</th>
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        <?php foreach ($posts as $post) : ?>
+                                        <?php if (empty($posts)): ?>
                                             <tr>
-                                                <td>
-                                                    <div class="title-stack">
-                                                        <strong><?php echo $post['title']; ?></strong>
-                                                        <span class="meta">ID <?php echo substr(md5($post['title']), 0, 6); ?></span>
-                                                    </div>
-                                                </td>
-                                                <td>
-                                                    <span class="status-chip status-<?php echo strtolower(str_replace(' ', '-', $post['status'])); ?>">
-                                                        <?php echo $post['status']; ?>
-                                                    </span>
-                                                </td>
-                                                <td>
-                                                    <span class="category-tag"><?php echo $post['category']; ?></span>
-                                                </td>
-                                                <td><?php echo $post['updated_at']; ?></td>
-                                                <td><?php echo $post['views']; ?></td>
-                                                <td><?php echo $post['comments']; ?></td>
-                                                <td class="text-end">
-                                                    <span class="trend-badge"><?php echo $post['trend']; ?></span>
+                                                <td colspan="7" style="text-align: center; padding: 2rem; color: #6b7280;">
+                                                    No posts yet. <a href="/admin/posts-create.php">Create your first post</a>
                                                 </td>
                                             </tr>
-                                        <?php endforeach; ?>
+                                        <?php else: ?>
+                                            <?php foreach ($posts as $post) : ?>
+                                                <tr>
+                                                    <td>
+                                                        <div class="title-stack">
+                                                            <strong><?php echo htmlspecialchars($post['title']); ?></strong>
+                                                            <span class="meta">ID <?php echo $post['id']; ?></span>
+                                                        </div>
+                                                    </td>
+                                                    <td>
+                                                        <span class="status-chip status-<?php echo strtolower(str_replace(' ', '-', $post['status'])); ?>">
+                                                            <?php echo ucfirst(str_replace('-', ' ', $post['status'])); ?>
+                                                        </span>
+                                                    </td>
+                                                    <td>
+                                                        <span class="category-tag"><?php echo htmlspecialchars($post['category_name'] ?: 'Uncategorized'); ?></span>
+                                                    </td>
+                                                    <td><?php echo formatDate($post['updated_at']); ?></td>
+                                                    <td><?php echo $post['status'] === 'published' ? formatNumber($post['views_count']) : '—'; ?></td>
+                                                    <td><?php echo $post['comments_count'] ?? 0; ?></td>
+                                                    <td class="text-end">
+                                                        <div class="table-actions">
+                                                            <a href="/admin/posts-create.php?edit=<?php echo $post['id']; ?>" class="table-action">
+                                                                <ion-icon name="create-outline"></ion-icon>
+                                                                <span>Edit</span>
+                                                            </a>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            <?php endforeach; ?>
+                                        <?php endif; ?>
                                     </tbody>
                                 </table>
                             </div>
