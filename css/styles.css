@@ -208,13 +208,12 @@ footer .social-links a {
 }
 
 footer .social-links a ion-icon {
-    color: #e1e2ea; /* main icon color */
+    color: #e1e2ea;
     font-size: 1.8rem;
     vertical-align: middle;
     transform-origin: center;
     transition: transform 0.3s ease, filter 0.3s ease;
     
-    /* creates top-left and bottom-right glow layers */
     filter:
         drop-shadow(-2px -2px 0 #fe5038)
         drop-shadow(2px 2px 0 #ff2b87);
@@ -370,7 +369,6 @@ footer .social-links a:hover {
     margin-left: 18px;
 }
 
-/* Empty State Styling */
 .empty-state {
     text-align: center;
     padding: 4rem 2rem;
@@ -424,7 +422,6 @@ footer .social-links a:hover {
     z-index: 1;
 }
 
-/* Pagination Styling */
 .pagination {
     gap: 8px;
 }

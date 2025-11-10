@@ -166,7 +166,7 @@ if (!hasAdminUsers()) {
                                 Visit My Portfolio
                             </a>
                             <a href="/posts.php" class="btn-outline">View My Posts</a>
-                            <a href="/bookmarks.php" class="btn-outline">Check Bookmarks</a>
+                            <!-- <a href="/bookmarks.php" class="btn-outline">Check Bookmarks</a> -->
                         </div>
                     </div>
                 </div>

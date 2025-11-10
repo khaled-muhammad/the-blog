@@ -127,7 +127,6 @@
     text-decoration: none;
 }
 
-/* Section spacing */
 .page-header {
     margin-bottom: 2.5rem;
 }
@@ -140,7 +139,6 @@
     margin-top: 0;
 }
 
-/* Remove text-decoration from all links */
 .comments-page a {
     text-decoration: none;
 }
@@ -150,7 +148,6 @@
     text-decoration: none;
 }
 
-/* Pagination links */
 .pagination .page-link {
     text-decoration: none;
 }

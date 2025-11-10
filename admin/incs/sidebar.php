@@ -1,5 +1,14 @@
-                <div class="admin-sidebar-wrapper">
-                    <aside class="admin-sidebar">
+                <button
+                    class="admin-mobile-toggle d-lg-none"
+                    type="button"
+                    aria-controls="adminSidebar"
+                    aria-expanded="false">
+                    <ion-icon name="menu-outline"></ion-icon>
+                    <span>Menu</span>
+                </button>
+                <div class="admin-sidebar-wrapper" id="adminSidebarWrapper">
+                    <div class="admin-sidebar-backdrop" aria-hidden="true"></div>
+                    <aside class="admin-sidebar" id="adminSidebar" aria-hidden="false">
                         <button class="sidebar-toggle" type="button" aria-label="Collapse sidebar" aria-expanded="true">
                             <ion-icon name="chevron-back-outline"></ion-icon>
                         </button>
@@ -29,12 +38,12 @@
                                         <span>Comments</span>
                                     </a>
                                 </li>
-                                <li class="nav-item">
+                                <!-- <li class="nav-item">
                                     <a class="nav-link" href="/admin/users.php">
                                         <ion-icon name="people-outline"></ion-icon>
                                         <span>Users</span>
                                     </a>
-                                </li>
+                                </li> -->
                                 <li class="nav-item">
                                     <a class="nav-link" href="/" target="_blank" rel="noopener">
                                         <ion-icon name="globe-outline"></ion-icon>
@@ -48,6 +57,12 @@
                                     </a>
                                     <div class="corner-accent top-left"></div>
                                     <div class="corner-accent bottom-right"></div>
+                                </li>
+                                <li class="nav-item nav-item-close d-lg-none">
+                                    <button class="sidebar-close-btn" type="button">
+                                        <span>Close Menu</span>
+                                        <ion-icon name="close-circle-outline"></ion-icon>
+                                    </button>
                                 </li>
                             </ul>
                             <div class="mbg"></div>
